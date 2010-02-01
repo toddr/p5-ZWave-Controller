@@ -2,6 +2,7 @@ package ZWave::Controller;
 
 use Moose;
 use Device::SerialPort;
+use Log::Log4perl qw(:easy);
 
 use version;
 our $VERSION = '0.0.1_01';
@@ -30,7 +31,10 @@ our $VERSION = '0.0.1_01';
 #
 
 has 'port' => (isa => Str, is => 'ro', default => sub{'/dev/ttyUSB0'});
-has 'device' => (isa => Object, is => 'ro', lazy => 1, default => sub{Device::SerialPort->new(shift->port, 1) or die("Can't open serial port $port: $^E")});
+has 'device' => (isa => Object, 
+		 is => 'ro', 
+		 lazy => 1, 
+		 default => sub{shift->init_controller});
 
 my %addnode_status = (
     1 => "learn ready",
@@ -43,17 +47,21 @@ my %addnode_status = (
 );
 
 
-my $dl = 2;
+sub _init_controller {
+  my $serial_port = Device::SerialPort->new(shift->port, 1)
+    or die("Can't open serial port $port: $^E");
+  $serial_port->error_msg(1);     # use built-in error messages
+  $serial_port->user_msg(0);
+  $serial_port->databits(8);
+  $serial_port->baudrate(115200);
+  $serial_port->parity("none");
+  $serial_port->stopbits(1);
+  $serial_port->dtr_active(1);
+  $serial_port->handshake("none");
+  $serial_port->write_settings || die "Could not set up port\n";
 
-$serial_port->error_msg(1);     # use built-in error messages
-$serial_port->user_msg(0);
-$serial_port->databits(8);
-$serial_port->baudrate(115200);
-$serial_port->parity("none");
-$serial_port->stopbits(1);
-$serial_port->dtr_active(1);
-$serial_port->handshake("none");
-$serial_port->write_settings || die "Could not set up port\n";
+  $serial_port; # Return port into.
+}
 
 my $cmd = shift;
 
@@ -102,7 +110,7 @@ END
     $serial_port->close();
     exit(1);
 }
-    
+
 transmit( $seq ) if( $seq );
 receive(1) if( $expect_answer );
 
@@ -117,7 +125,7 @@ sub receive {
     my $end = time+$timeout;
     $stopreceive = 0;
     do {
-receive_once();
+      receive_once();
     } while( ($end > time) && ! $stopreceive );
 }
 
@@ -127,35 +135,35 @@ receive_once();
 # @return true if we got an ack, false otherwise
 #
 sub receive_once {
-    my $gotack = 0;
-    $serial_port->read_const_time(200);       # 500 milliseconds = 0.5 seconds my $input = "";   
-    $input = "";
-    while( 1 ) {
-my( $count, $bytes ) = $serial_port->read(1);
-$input .= $bytes;
-last unless( $count );
+  my $gotack = 0;
+  $serial_port->read_const_time(200);       # 500 milliseconds = 0.5 seconds my $input = "";   
+  $input = "";
+  while( 1 ) {
+    my( $count, $bytes ) = $serial_port->read(1);
+    $input .= $bytes;
+    last unless( $count );
+  }
+  my @bytes = unpack( "C*", $input );
+  for( my $i=0; $i<@bytes; $i++ ) {
+    my $byte = $bytes[$i];
+    if( $byte == 6 ) {
+      DEBUG("got ack");
+      $gotack++;
     }
-    my @bytes = unpack( "C*", $input );
-    for( my $i=0; $i<@bytes; $i++ ) {
-my $byte = $bytes[$i];
-if( $byte == 6 ) {
-    print "got ack\n" if( $dl > 2 );
-    $gotack++;
-}
-elsif( $byte == 1 ) {
-    my $len = $bytes[$i+1];
-    $i+=2;
-    my @packet = ();
-    for( ; $len>1; $len--, $i++ ) {
-push( @packet, $bytes[$i] );
+    elsif( $byte == 1 ) {
+      my $len = $bytes[$i+1];
+      $i+=2;
+      my @packet = ();
+      for( ; $len>1; $len--, $i++ ) {
+	push( @packet, $bytes[$i] );
+      }
+      $i++;
+      handle_packet( \@packet );
+      DEBUG(" ... writing ack");
+      $serial_port->write(pack("C",6));
     }
-    $i++;
-    handle_packet( \@packet );
-    print " ... writing ack\n" if( $dl > 2 );
-    $serial_port->write(pack("C",6));
-}
-    }
-    return $gotack;
+  }
+  return $gotack;
 }
 
 
@@ -163,34 +171,34 @@ push( @packet, $bytes[$i] );
 # transmit one packet
 #
 sub transmit {
-    my( $seq ) = @_;
+  my( $seq ) = @_;
 
-    my $retries = 4; 
-    while( $retries-- && $seq ) { 
-my $len = length( $seq );
-print "sending: ";
-for( my $i=2; $i<$len-1; $i++ ) {
-    print sprintf( "%X ", unpack( "C", substr( $seq, $i, 1 ) ) );
-}
-print "\n";
-$serial_port->write( $seq );
-last if( receive_once() );
+  my $retries = 4; 
+  while( $retries-- && $seq ) {
+    my $len = length( $seq );
+    print "sending: ";
+    for( my $i=2; $i<$len-1; $i++ ) {
+      print sprintf( "%X ", unpack( "C", substr( $seq, $i, 1 ) ) );
     }
+    print "\n";
+    $serial_port->write( $seq );
+    last if( receive_once() );
+  }
 }
 
 
 sub mkreqpacket {
-    my( @bytes ) = @_;
+  my( @bytes ) = @_;
 
-    my $len = @bytes + 1;
-    unshift( @bytes, $len );
-    unshift( @bytes, 0x1 );
-    my $cr = 0xff;
-    for( my $i=1; $i<=$len; $i++ ) {
-$cr ^= $bytes[$i];
-    }
-    push( @bytes, $cr );
-    return @bytes;
+  my $len = @bytes + 1;
+  unshift( @bytes, $len );
+  unshift( @bytes, 0x1 );
+  my $cr = 0xff;
+  for( my $i=1; $i<=$len; $i++ ) {
+    $cr ^= $bytes[$i];
+  }
+  push( @bytes, $cr );
+  return @bytes;
 }
 
 
@@ -199,22 +207,20 @@ sub packpack {
 
     my $seq = "";
     foreach my $byte (@bytes) {
-$seq .= pack( "C", $byte );
+        $seq .= pack( "C", $byte );
     }
     return $seq;
 }
 
 
 sub dim {
-    my( $unit, $level ) = @_;
-
+    my($unit, $level ) = @_;
     return( packpack( mkreqpacket( 0, 0x13, $unit, 3, 0x20, 1, $level, 5 ) ) );
 }
 
 
 sub switch {
     my( $unit, $onoff ) = @_;
-
     dim( $unit, $onoff ? 255 : 0 );
 }
 
@@ -240,40 +246,39 @@ sub getAssociation {
 
 #---------------------------
 
-
 sub handle_packet {
-    my( $pkg ) = @_;
+  my( $pkg ) = @_;
 
-    if( ($pkg->[1] == 0x4a) && ($pkg->[2] == 3) ) {
-# add node -- status
-$status = $pkg->[3];
-print "add node: ". $addnode_status{$status}. " ($status)";
-if( $status == 3 or $status == 4 ) {
-    print "  ==> added unit: ".$pkg->[4];
-}
- print "\n";
-if( $status == 1 ) {
-    print "PLEASE PRESS A KEY ON THE DEVICE TO BE ADDED\n";
-}
-$stopreceive = 1 if( grep( $status == $_, 3, 5, 6, 7 ) );
-return;
-    }
-
-    if( ($pkg->[1] == 4 ) && ($pkg->[5] == 0x85) && ($pkg->[6] == 3 ) ) {
-print "association report from unit ". ($pkg->[3]);
-print ", group ".($pkg->[7]);
-print ", max assoc. ".($pkg->[8]);
-print ", current assoc. ".($pkg->[9]);
-print ": ".join( " ", pkg->[10..100] );
-print "\n";
-return;
-    }
-
-    print "got packet: ";
-    foreach my $byte (@$pkg) {
-print sprintf( "%X ", $byte );
+  if( ($pkg->[1] == 0x4a) && ($pkg->[2] == 3) ) {
+    # add node -- status
+    $status = $pkg->[3];
+    print "add node: ". $addnode_status{$status}. " ($status)";
+    if( $status == 3 or $status == 4 ) {
+      print "  ==> added unit: ".$pkg->[4];
     }
     print "\n";
+    if( $status == 1 ) {
+      print "PLEASE PRESS A KEY ON THE DEVICE TO BE ADDED\n";
+    }
+    $stopreceive = 1 if( grep( $status == $_, 3, 5, 6, 7 ) );
+    return;
+  }
+
+  if( ($pkg->[1] == 4 ) && ($pkg->[5] == 0x85) && ($pkg->[6] == 3 ) ) {
+    print "association report from unit ". ($pkg->[3]);
+    print ", group ".($pkg->[7]);
+    print ", max assoc. ".($pkg->[8]);
+    print ", current assoc. ".($pkg->[9]);
+    print ": ".join( " ", pkg->[10..100] );
+    print "\n";
+    return;
+  }
+
+  print "got packet: ";
+  foreach my $byte (@$pkg) {
+    print sprintf( "%X ", $byte );
+  }
+  print "\n";
 }
 
 

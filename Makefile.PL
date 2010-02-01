@@ -15,6 +15,7 @@ WriteMakefile(
         'Test::More' => 0,
 	'Moose' => 0.94,
 	'Device::SerialPort' => 0,
+	'Log::Log4perl' => 0,
     },
     dist                => { COMPRESS => 'gzip -9f', SUFFIX => 'gz', },
     clean               => { FILES => 'ZWave-Controller-*' },
