@@ -1,0 +1,46 @@
+ZWave-Controller
+
+I got this information from http://www.bigsister.ch/zwave/. I'm trying to make it more generally available
+on cpan which he seemed to be doing too. Unfortunatley, I don't see a good way to get ahold of him.
+
+INSTALLATION
+
+To install this module, run the following commands:
+
+	perl Makefile.PL
+	make
+	make test
+	make install
+
+SUPPORT AND DOCUMENTATION
+
+After installing, you can find documentation for this module with the
+perldoc command.
+
+    perldoc ZWave::Controller
+
+You can also look for information at:
+
+    RT, CPAN's request tracker
+        http://rt.cpan.org/NoAuth/Bugs.html?Dist=ZWave-Controller
+
+    AnnoCPAN, Annotated CPAN documentation
+        http://annocpan.org/dist/ZWave-Controller
+
+    CPAN Ratings
+        http://cpanratings.perl.org/d/ZWave-Controller
+
+    Search CPAN
+        http://search.cpan.org/dist/ZWave-Controller/
+
+
+COPYRIGHT AND LICENCE
+
+Copyright (C) 2010 Todd Rinaldo
+
+This program is free software; you can redistribute it and/or modify it
+under the terms of either: the GNU General Public License as published
+by the Free Software Foundation; or the Artistic License.
+
+See http://dev.perl.org/licenses/ for more information.
+
